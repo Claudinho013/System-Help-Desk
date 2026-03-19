@@ -5,8 +5,12 @@
   "outputDirectory": "frontend/dist",
   "routes": [
     {
+      "src": "/api/health",
+      "dest": "/api/health.js"
+    },
+    {
       "src": "/api/(.*)",
-      "dest": "/api/$1"
+      "dest": "/api/[...route].js"
     },
     {
       "handle": "filesystem"
