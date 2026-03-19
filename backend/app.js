@@ -2,9 +2,10 @@ const cors = require('cors')
 const express = require('express')
 const WebSocket = require('ws')
 const http = require('http')
+const jwt = require('jsonwebtoken')
 const nodemailer = require('nodemailer')
 const webpush = require('web-push')
-const { getSupabaseStatus, isSupabaseConfigured } = require('./lib/supabaseClient')
+const { getSupabaseStatus, hasServiceRoleKey, isSupabaseConfigured } = require('./lib/supabaseClient')
 const { pullStateFromSupabase, pushStateToSupabase } = require('./lib/supabaseSync')
 
 const app = express()
@@ -77,7 +78,11 @@ const TICKET_PRIORITY_ORDER = {
   critical: 4,
 }
 const TICKET_STATUS_ORDER = Object.fromEntries(TICKET_STATUSES.map((status, index) => [status, index + 1]))
-const SUPABASE_AUTO_PULL = process.env.SUPABASE_AUTO_PULL === 'true'
+const SUPABASE_AUTO_PULL =
+  process.env.SUPABASE_AUTO_PULL === 'true' ||
+  (Boolean(process.env.VERCEL) && process.env.SUPABASE_AUTO_PULL !== 'false')
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'helpdesk-dev-secret'
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
 let supabasePullAttempted = false
 
 const COMMENT_TYPES = ['standard', 'internal', 'system']
@@ -1234,9 +1239,7 @@ const removeUserSessions = (userId) => {
 }
 
 const createSession = (userId) => {
-  const token = `token-${userId}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  data.sessions.set(token, userId)
-  return token
+  return jwt.sign({ id: Number(userId) }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
 }
 
 const getAuthUser = (req) => {
@@ -1246,7 +1249,14 @@ const getAuthUser = (req) => {
     return null
   }
 
-  const userId = data.sessions.get(token)
+  let payload = null
+  try {
+    payload = jwt.verify(token, JWT_SECRET)
+  } catch (_error) {
+    return null
+  }
+
+  const userId = Number(payload?.id)
 
   if (!userId) {
     return null
@@ -1397,6 +1407,25 @@ const maybeAutoPullFromSupabase = async () => {
   }
 }
 
+const syncUsersFromSupabaseForAuth = async () => {
+  if (!isSupabaseConfigured() || !hasServiceRoleKey()) {
+    return false
+  }
+
+  try {
+    const snapshot = await pullStateFromSupabase()
+
+    if (snapshot.users.length > 0) {
+      applySnapshotToMemory(snapshot)
+      return true
+    }
+  } catch (error) {
+    console.warn('[Supabase] Falha ao sincronizar usuarios para login:', error.message)
+  }
+
+  return false
+}
+
 app.use(async (_req, _res, next) => {
   await maybeAutoPullFromSupabase()
   runAutomations({ reason: 'request_cycle' })
@@ -1510,7 +1539,7 @@ app.post('/api/auth/register', (req, res) => {
   return res.status(201).json({ ok: true, user: buildUserPayload(user, { includePermissions: true }) })
 })
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {}
 
   if (!email || !password) {
@@ -1519,9 +1548,19 @@ app.post('/api/auth/login', (req, res) => {
 
   const normalizedEmail = String(email).toLowerCase().trim()
 
-  const user = data.users.find(
+  let user = data.users.find(
     (item) => item.email.toLowerCase() === normalizedEmail && item.password === String(password),
   )
+
+  if (!user) {
+    const synced = await syncUsersFromSupabaseForAuth()
+
+    if (synced) {
+      user = data.users.find(
+        (item) => item.email.toLowerCase() === normalizedEmail && item.password === String(password),
+      )
+    }
+  }
 
   if (!user) {
     return res.status(401).json({ ok: false, message: 'Credenciais invalidas' })

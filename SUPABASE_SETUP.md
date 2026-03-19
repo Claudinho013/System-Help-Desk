@@ -19,6 +19,8 @@ Copie backend/.env.example para backend/.env e preencha:
 - SUPABASE_SERVICE_ROLE_KEY
 - SUPABASE_DB_URL (opcional, para scripts diretos em Postgres)
 - SUPABASE_AUTO_PULL (opcional, true para carregar dados automaticamente no primeiro request)
+- JWT_SECRET (obrigatorio em producao para assinatura dos tokens)
+- JWT_EXPIRES_IN (opcional, padrao 7d)
 
 Exemplo:
 
@@ -29,6 +31,8 @@ SUPABASE_PUBLISHABLE_KEY=SEU_PUBLISHABLE_KEY
 SUPABASE_SERVICE_ROLE_KEY=SEU_SERVICE_ROLE_KEY
 SUPABASE_DB_URL=postgresql://postgres:[SENHA]@db.SEUPROJETO.supabase.co:5432/postgres
 SUPABASE_AUTO_PULL=false
+JWT_SECRET=uma-chave-forte-e-unica
+JWT_EXPIRES_IN=7d
 ```
 
 Observacao:
@@ -62,6 +66,12 @@ Adicione no projeto da Vercel as variaveis:
 - SUPABASE_SERVICE_ROLE_KEY
 - SUPABASE_DB_URL (opcional)
 - SUPABASE_AUTO_PULL (opcional)
+- JWT_SECRET (obrigatorio)
+- JWT_EXPIRES_IN (opcional)
+
+Recomendado na Vercel:
+
+- SUPABASE_AUTO_PULL=true
 
 ## 5) Seguranca
 
